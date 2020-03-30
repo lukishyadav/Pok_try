@@ -1,89 +1,42 @@
-from os.path import join, dirname
-import datetime
+from random import random
 
-import pandas as pd
-from scipy.signal import savgol_filter
+from bokeh.layouts import column
+from bokeh.models import Button
+from bokeh.palettes import RdYlBu3
+from bokeh.plotting import figure, curdoc
 
-from bokeh.io import curdoc
-from bokeh.layouts import row, column
-from bokeh.models import ColumnDataSource, DataRange1d, Select
-from bokeh.palettes import Blues4
-from bokeh.plotting import figure
+# create a plot and style its properties
+p = figure(x_range=(0, 100), y_range=(0, 100), toolbar_location=None)
+p.border_fill_color = 'black'
+p.background_fill_color = 'black'
+p.outline_line_color = None
+p.grid.grid_line_color = None
 
-STATISTICS = ['record_min_temp', 'actual_min_temp', 'average_min_temp', 'average_max_temp', 'actual_max_temp', 'record_max_temp']
+# add a text renderer to our plot (no data yet)
+r = p.text(x=[], y=[], text=[], text_color=[], text_font_size="20pt",
+           text_baseline="middle", text_align="center")
 
-def get_dataset(src, name, distribution):
-    df = src[src.airport == name].copy()
-    del df['airport']
-    df['date'] = pd.to_datetime(df.date)
-    # timedelta here instead of pd.DateOffset to avoid pandas bug < 0.18 (Pandas issue #11925)
-    df['left'] = df.date - datetime.timedelta(days=0.5)
-    df['right'] = df.date + datetime.timedelta(days=0.5)
-    df = df.set_index(['date'])
-    df.sort_index(inplace=True)
-    if distribution == 'Smoothed':
-        window, order = 51, 3
-        for key in STATISTICS:
-            df[key] = savgol_filter(df[key], window, order)
+i = 0
 
-    return ColumnDataSource(data=df)
+ds = r.data_source
 
-def make_plot(source, title):
-    plot = figure(x_axis_type="datetime", plot_width=800, tools="", toolbar_location=None)
-    plot.title.text = title
+# create a callback that will add a number in a random location
+def callback():
+    global i
 
-    plot.quad(top='record_max_temp', bottom='record_min_temp', left='left', right='right',
-              color=Blues4[2], source=source, legend="Record")
-    plot.quad(top='average_max_temp', bottom='average_min_temp', left='left', right='right',
-              color=Blues4[1], source=source, legend="Average")
-    plot.quad(top='actual_max_temp', bottom='actual_min_temp', left='left', right='right',
-              color=Blues4[0], alpha=0.5, line_color="black", source=source, legend="Actual")
+    # BEST PRACTICE --- update .data in one step with a new dict
+    new_data = dict()
+    new_data['x'] = ds.data['x'] + [random()*70 + 15]
+    new_data['y'] = ds.data['y'] + [random()*70 + 15]
+    new_data['text_color'] = ds.data['text_color'] + [RdYlBu3[i%3]]
+    new_data['text'] = ds.data['text'] + [str(i)]
+    ds.data = new_data
 
-    # fixed attributes
-    plot.xaxis.axis_label = None
-    plot.yaxis.axis_label = "Temperature (F)"
-    plot.axis.axis_label_text_font_style = "bold"
-    plot.x_range = DataRange1d(range_padding=0.0)
-    plot.grid.grid_line_alpha = 0.3
+    i = i + 1
 
-    return plot
+# add a button widget and configure with the call back
+button = Button(label="Press Me")
+button.on_click(callback)
 
-def update_plot(attrname, old, new):
-    city = city_select.value
-    plot.title.text = "Weather data for " + cities[city]['title']
-
-    src = get_dataset(df, cities[city]['airport'], distribution_select.value)
-    source.data.update(src.data)
-
-city = 'Austin'
-distribution = 'Discrete'
-
-cities = {
-    'Austin': {
-        'airport': 'AUS',
-        'title': 'Austin, TX',
-    },
-    'Boston': {
-        'airport': 'BOS',
-        'title': 'Boston, MA',
-    },
-    'Seattle': {
-        'airport': 'SEA',
-        'title': 'Seattle, WA',
-    }
-}
-
-city_select = Select(value=city, title='City', options=sorted(cities.keys()))
-distribution_select = Select(value=distribution, title='Distribution', options=['Discrete', 'Smoothed'])
-
-df = pd.read_csv(join(dirname(__file__), 'data/2015_weather.csv'))
-source = get_dataset(df, cities[city]['airport'], distribution)
-plot = make_plot(source, "Weather data for " + cities[city]['title'])
-
-city_select.on_change('value', update_plot)
-distribution_select.on_change('value', update_plot)
-
-controls = column(city_select, distribution_select)
-
-curdoc().add_root(row(plot, controls))
-curdoc().title = "Weather"
+# put the button and plot in a layout and add to the document
+curdoc().add_root(column(button, p))
